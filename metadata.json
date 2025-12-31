@@ -1,5 +1,7 @@
 {
   "name": "Dr. Hekma - AI Therapist",
   "description": "An empathetic, AI-powered psychotherapy companion providing CBT, DBT, and ACT based support in Arabic.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }

@@ -31,20 +31,24 @@ const App: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
 
-  // Initialize chat
+  // Initialize chat on mount without asking for key
   useEffect(() => {
-    initializeChat();
-    // Encrypt the initial greeting
-    const encryptedGreeting = encryptMessage(INITIAL_GREETING);
-    setEncryptedMessages([
-      {
-        id: uuidv4(),
-        role: MessageRole.MODEL,
-        text: encryptedGreeting,
-        timestamp: new Date(),
-        widget: WidgetType.NONE
-      },
-    ]);
+    try {
+      initializeChat();
+      // Encrypt the initial greeting
+      const encryptedGreeting = encryptMessage(INITIAL_GREETING);
+      setEncryptedMessages([
+        {
+          id: uuidv4(),
+          role: MessageRole.MODEL,
+          text: encryptedGreeting,
+          timestamp: new Date(),
+          widget: WidgetType.NONE
+        },
+      ]);
+    } catch (e) {
+      console.error("Initialization error", e);
+    }
   }, []);
 
   const scrollToBottom = () => {
@@ -56,7 +60,7 @@ const App: React.FC = () => {
   }, [encryptedMessages, isLoading]);
 
   // Voice Input Handler
-  const startListening = () => {
+  const startListening = async () => {
     const { webkitSpeechRecognition, SpeechRecognition } = window as unknown as IWindow;
     const Recognition = SpeechRecognition || webkitSpeechRecognition;
     
@@ -68,6 +72,16 @@ const App: React.FC = () => {
     if (isListening && recognitionRef.current) {
         recognitionRef.current.stop();
         setIsListening(false);
+        return;
+    }
+
+    // Explicitly request microphone permission first
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop());
+    } catch (error) {
+        console.error("Microphone permission denied:", error);
+        alert("عذراً، يجب السماح باستخدام الميكروفون للتحدث.");
         return;
     }
 
@@ -86,6 +100,9 @@ const App: React.FC = () => {
     recognition.onerror = (event: any) => {
         console.error("Speech recognition error", event.error);
         setIsListening(false);
+        if (event.error === 'not-allowed' || event.error === 'permission-denied') {
+            alert("عذراً، لا يمكن الوصول للميكروفون. يرجى التأكد من منح الصلاحية.");
+        }
     };
 
     recognition.onresult = (event: any) => {
@@ -124,11 +141,11 @@ const App: React.FC = () => {
 
   const handleSendMessage = useCallback(async () => {
     if (!input.trim() || isLoading) return;
-
+    
     const userText = input.trim();
     setInput('');
     
-    // Encrypt user message before adding to state
+    // Encrypt user message
     setEncryptedMessages((prev) => [...prev, {
       id: uuidv4(),
       role: MessageRole.USER,
@@ -154,7 +171,6 @@ const App: React.FC = () => {
       for await (const chunk of stream) {
         fullTextBuffer += chunk;
         
-        // Encrypt the accumulated buffer before updating state
         const encryptedChunk = encryptMessage(fullTextBuffer);
 
         setEncryptedMessages((prev) => 
@@ -173,14 +189,20 @@ const App: React.FC = () => {
         );
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Chat error:", error);
+      let errorMsg = "حدث انقطاع في الاتصال بالشبكة العصبية. حاول مجدداً.";
+      
+      if (error.message?.includes('API_KEY')) {
+          errorMsg = "عذراً، لم يتم إعداد مفتاح النظام بشكل صحيح من المصدر.";
+      }
+
       setEncryptedMessages((prev) => [
         ...prev,
         {
           id: uuidv4(),
           role: MessageRole.MODEL,
-          text: encryptMessage("حدث انقطاع في الاتصال بالشبكة العصبية. حاول مجدداً."),
+          text: encryptMessage(errorMsg),
           timestamp: new Date(),
           isError: true,
         },
@@ -198,7 +220,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Helper to get decrypted messages for rendering
   const getDecryptedMessages = () => {
     return encryptedMessages.map(msg => ({
       ...msg,
